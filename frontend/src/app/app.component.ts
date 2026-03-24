@@ -1,17 +1,26 @@
 import { Component, OnInit } from '@angular/core';
 
-import { Complaint, CreateComplaintRequest } from './complaint.model';
+import { Complaint, ComplaintProgress, ComplaintStatus, CreateComplaintRequest } from './complaint.model';
 import { ComplaintService } from './complaint.service';
+
+type Portal = 'citizen' | 'admin';
 
 @Component({
   selector: 'app-root',
   templateUrl: './app.component.html'
 })
 export class AppComponent implements OnInit {
-  complaints: Complaint[] = [];
-  loading = false;
-  saving = false;
-  errorMessage = '';
+  selectedPortal: Portal = 'citizen';
+
+  citizenProgress: ComplaintProgress[] = [];
+  adminComplaints: Complaint[] = [];
+
+  loadingCitizen = false;
+  loadingAdmin = false;
+  savingComplaint = false;
+
+  citizenError = '';
+  adminError = '';
 
   formModel: CreateComplaintRequest = {
     title: '',
@@ -21,38 +30,33 @@ export class AppComponent implements OnInit {
   };
 
   readonly categories = ['Road', 'Sanitation', 'Water', 'Electricity', 'Public Safety', 'Other'];
-  readonly statuses = ['Open', 'In Progress', 'Resolved', 'Closed'];
+  readonly statuses: ComplaintStatus[] = ['Open', 'In Progress', 'Dismissed', 'Done'];
 
   constructor(private readonly complaintService: ComplaintService) {}
 
   ngOnInit(): void {
-    this.loadComplaints();
+    this.loadCitizenProgress();
+    this.loadAdminComplaints();
   }
 
-  loadComplaints(): void {
-    this.loading = true;
-    this.errorMessage = '';
-
-    this.complaintService.getAll().subscribe({
-      next: (data) => {
-        this.complaints = data;
-        this.loading = false;
-      },
-      error: () => {
-        this.errorMessage = 'Could not load complaints. Please try again.';
-        this.loading = false;
-      }
-    });
+  selectPortal(portal: Portal): void {
+    this.selectedPortal = portal;
+    if (portal === 'citizen' && this.citizenProgress.length === 0) {
+      this.loadCitizenProgress();
+    }
+    if (portal === 'admin' && this.adminComplaints.length === 0) {
+      this.loadAdminComplaints();
+    }
   }
 
   submitComplaint(): void {
     if (!this.formModel.title.trim() || !this.formModel.description.trim() || !this.formModel.location.trim()) {
-      this.errorMessage = 'Title, Description, and Location are required.';
+      this.citizenError = 'Title, Description, and Location are required.';
       return;
     }
 
-    this.saving = true;
-    this.errorMessage = '';
+    this.savingComplaint = true;
+    this.citizenError = '';
 
     const payload: CreateComplaintRequest = {
       title: this.formModel.title.trim(),
@@ -61,7 +65,7 @@ export class AppComponent implements OnInit {
       category: this.formModel.category
     };
 
-    this.complaintService.create(payload).subscribe({
+    this.complaintService.createComplaint(payload).subscribe({
       next: () => {
         this.formModel = {
           title: '',
@@ -69,32 +73,81 @@ export class AppComponent implements OnInit {
           location: '',
           category: 'Road'
         };
-        this.saving = false;
-        this.loadComplaints();
+        this.savingComplaint = false;
+        this.loadCitizenProgress();
+        this.loadAdminComplaints();
       },
       error: () => {
-        this.errorMessage = 'Could not submit complaint. Please try again.';
-        this.saving = false;
+        this.citizenError = 'Could not submit complaint. Please try again.';
+        this.savingComplaint = false;
       }
     });
   }
 
-  onStatusChange(complaint: Complaint, status: string): void {
+  loadCitizenProgress(): void {
+    this.loadingCitizen = true;
+    this.citizenError = '';
+
+    this.complaintService.getAllProgress().subscribe({
+      next: (data) => {
+        this.citizenProgress = data;
+        this.loadingCitizen = false;
+      },
+      error: () => {
+        this.citizenError = 'Could not load complaint progress.';
+        this.loadingCitizen = false;
+      }
+    });
+  }
+
+  loadAdminComplaints(): void {
+    this.loadingAdmin = true;
+    this.adminError = '';
+
+    this.complaintService.getAllComplaintsForAdmin().subscribe({
+      next: (data) => {
+        this.adminComplaints = data;
+        this.loadingAdmin = false;
+      },
+      error: () => {
+        this.adminError = 'Could not load complaints for admin.';
+        this.loadingAdmin = false;
+      }
+    });
+  }
+
+  updateStatus(complaint: Complaint, status: ComplaintStatus): void {
     if (complaint.status === status) {
       return;
     }
 
+    this.adminError = '';
     this.complaintService.updateStatus(complaint.id, status).subscribe({
       next: (updated) => {
         complaint.status = updated.status;
+        complaint.updatedAtUtc = updated.updatedAtUtc;
+        this.loadCitizenProgress();
       },
       error: () => {
-        this.errorMessage = `Could not update status for complaint #${complaint.id}.`;
+        this.adminError = 'Could not update complaint #' + complaint.id + '.';
       }
     });
   }
 
-  trackByComplaintId(_: number, complaint: Complaint): number {
-    return complaint.id;
+  statusClass(status: ComplaintStatus): string {
+    if (status === 'In Progress') {
+      return 'status-in-progress';
+    }
+    if (status === 'Dismissed') {
+      return 'status-dismissed';
+    }
+    if (status === 'Done') {
+      return 'status-done';
+    }
+    return 'status-open';
+  }
+
+  trackById(_: number, item: { id: number }): number {
+    return item.id;
   }
 }

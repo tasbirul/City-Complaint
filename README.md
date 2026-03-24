@@ -1,44 +1,54 @@
-# City Complaint App (3-Tier)
+# City Complaint (3 Microservices)
 
-A complete 3-tier application using:
-- Angular frontend
-- ASP.NET Core Web API backend
-- PostgreSQL database
-- Docker multi-stage builds + Docker Compose
+This app is now split into 3 backend microservices:
 
-## Project Structure
+1. Complaint Service (`complaint-service`)
+- Citizen issues complaint
+- Endpoint: `POST /api/complaints`
 
-- `frontend/` - Angular app + frontend multi-stage Dockerfile + Nginx reverse proxy
-- `backend/` - .NET Web API + EF Core + PostgreSQL + backend multi-stage Dockerfile
-- `docker-compose.yml` - local orchestration for all tiers
+2. Admin Service (`admin-service`)
+- Admin updates complaint progress/status
+- Endpoints:
+  - `GET /api/admin/complaints`
+  - `PUT /api/admin/complaints/{id}/status`
 
-## Run Locally with Docker
+3. Progress Service (`progress-service`)
+- Citizen views progress
+- Endpoints:
+  - `GET /api/progress`
+  - `GET /api/progress/{id}`
+
+## Frontend Portals
+
+- Citizen Portal:
+  - Issue complaint
+  - View progress with color status
+
+- Admin Portal:
+  - View complaints
+  - Update status (`Open`, `In Progress`, `Dismissed`, `Done`)
+
+Status colors in the UI:
+- `In Progress`: amber
+- `Dismissed`: red
+- `Done`: green
+
+## Run
 
 ```bash
 docker compose up --build
 ```
 
-## App URLs
+## URLs
 
-- Frontend: http://localhost:4200
-- Backend API: http://localhost:8080
-- Swagger (API docs): http://localhost:8080/swagger
+- Frontend: `http://localhost:4200`
+- Complaint Service: `http://localhost:8081`
+- Admin Service: `http://localhost:8082`
+- Progress Service: `http://localhost:8083`
+- PostgreSQL host port: `5433`
 
-## Main API Endpoints
-
-- `GET /api/complaints` - list all complaints
-- `GET /api/complaints/{id}` - get one complaint
-- `POST /api/complaints` - create complaint
-- `PUT /api/complaints/{id}/status` - update complaint status
-
-## Stop Stack
+## Stop
 
 ```bash
 docker compose down
-```
-
-To also remove DB volume:
-
-```bash
-docker compose down -v
 ```

@@ -1,8 +1,17 @@
 <div class="container">
-  <h1>City Complaint Tracker</h1>
+  <h1>City Complaint Microservices</h1>
 
-  <section class="card">
-    <h2>Submit a Complaint</h2>
+  <div class="portal-switcher card">
+    <button type="button" [class.active]="selectedPortal === 'citizen'" (click)="selectPortal('citizen')">
+      Citizen Portal
+    </button>
+    <button type="button" [class.active]="selectedPortal === 'admin'" (click)="selectPortal('admin')">
+      Admin Portal
+    </button>
+  </div>
+
+  <section *ngIf="selectedPortal === 'citizen'" class="card">
+    <h2>Issue Complaint</h2>
     <form (ngSubmit)="submitComplaint()">
       <div class="grid">
         <div>
@@ -25,52 +34,60 @@
 
       <div style="margin-top: 0.75rem;">
         <label for="description">Description</label>
-        <textarea
-          id="description"
-          name="description"
-          [(ngModel)]="formModel.description"
-          maxlength="1000"
-          required
-        ></textarea>
+        <textarea id="description" name="description" [(ngModel)]="formModel.description" maxlength="1000" required></textarea>
       </div>
 
       <div style="margin-top: 0.8rem;">
-        <button type="submit" [disabled]="saving">
-          {{ saving ? 'Submitting...' : 'Submit Complaint' }}
+        <button type="submit" [disabled]="savingComplaint">
+          {{ savingComplaint ? 'Submitting...' : 'Submit Complaint' }}
         </button>
       </div>
     </form>
 
-    <p class="error" *ngIf="errorMessage">{{ errorMessage }}</p>
+    <p class="error" *ngIf="citizenError">{{ citizenError }}</p>
   </section>
 
-  <section class="card">
-    <h2>Recent Complaints</h2>
-    <p *ngIf="loading">Loading complaints...</p>
-    <p *ngIf="loading === false && complaints.length === 0">No complaints yet.</p>
+  <section *ngIf="selectedPortal === 'citizen'" class="card">
+    <h2>View Progress</h2>
+    <p *ngIf="loadingCitizen">Loading progress...</p>
+    <p *ngIf="!loadingCitizen && citizenProgress.length === 0">No complaints found.</p>
 
-    <div *ngFor="let complaint of complaints; trackBy: trackByComplaintId" class="card" style="margin-top: 0.8rem;">
+    <div *ngFor="let item of citizenProgress; trackBy: trackById" class="card complaint-item">
+      <div class="complaint-meta">
+        <span class="status-chip">#{{ item.id }}</span>
+        <span class="status-chip">{{ item.category }}</span>
+        <span class="status-chip" [ngClass]="statusClass(item.status)">{{ item.status }}</span>
+      </div>
+
+      <h3>{{ item.title }}</h3>
+      <p><strong>Location:</strong> {{ item.location }}</p>
+      <p class="date-text">Created: {{ item.createdAtUtc | date:'medium' }}</p>
+      <p class="date-text">Last update: {{ item.updatedAtUtc | date:'medium' }}</p>
+    </div>
+  </section>
+
+  <section *ngIf="selectedPortal === 'admin'" class="card">
+    <h2>Admin Progress Update</h2>
+    <p *ngIf="loadingAdmin">Loading complaints...</p>
+    <p *ngIf="!loadingAdmin && adminComplaints.length === 0">No complaints to manage.</p>
+
+    <div *ngFor="let complaint of adminComplaints; trackBy: trackById" class="card complaint-item">
       <div class="complaint-meta">
         <span class="status-chip">#{{ complaint.id }}</span>
         <span class="status-chip">{{ complaint.category }}</span>
-        <span class="status-chip">{{ complaint.status }}</span>
+        <span class="status-chip" [ngClass]="statusClass(complaint.status)">{{ complaint.status }}</span>
       </div>
 
-      <h3 style="margin: 0.25rem 0;">{{ complaint.title }}</h3>
-      <p style="margin: 0.35rem 0;"><strong>Location:</strong> {{ complaint.location }}</p>
-      <p style="margin: 0.35rem 0;">{{ complaint.description }}</p>
-      <p style="margin: 0.35rem 0; color: #52667a; font-size: 0.9rem;">
-        Submitted: {{ complaint.createdAtUtc | date:'medium' }}
-      </p>
+      <h3>{{ complaint.title }}</h3>
+      <p><strong>Location:</strong> {{ complaint.location }}</p>
+      <p>{{ complaint.description }}</p>
 
       <label [for]="'status-' + complaint.id">Update Status</label>
-      <select
-        [id]="'status-' + complaint.id"
-        [ngModel]="complaint.status"
-        (ngModelChange)="onStatusChange(complaint, $event)"
-      >
+      <select [id]="'status-' + complaint.id" [ngModel]="complaint.status" (ngModelChange)="updateStatus(complaint, $event)">
         <option *ngFor="let status of statuses" [value]="status">{{ status }}</option>
       </select>
     </div>
+
+    <p class="error" *ngIf="adminError">{{ adminError }}</p>
   </section>
 </div>

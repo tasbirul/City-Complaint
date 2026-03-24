@@ -2,25 +2,31 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { Complaint, CreateComplaintRequest } from './complaint.model';
+import { Complaint, ComplaintProgress, ComplaintStatus, CreateComplaintRequest } from './complaint.model';
 
 @Injectable({
   providedIn: 'root'
 })
 export class ComplaintService {
-  private readonly baseUrl = '/api/complaints';
+  private readonly complaintUrl = '/api/complaints';
+  private readonly progressUrl = '/api/progress';
+  private readonly adminUrl = '/api/admin/complaints';
 
   constructor(private readonly http: HttpClient) {}
 
-  getAll(): Observable<Complaint[]> {
-    return this.http.get<Complaint[]>(this.baseUrl);
+  createComplaint(payload: CreateComplaintRequest): Observable<Complaint> {
+    return this.http.post<Complaint>(this.complaintUrl, payload);
   }
 
-  create(payload: CreateComplaintRequest): Observable<Complaint> {
-    return this.http.post<Complaint>(this.baseUrl, payload);
+  getAllComplaintsForAdmin(): Observable<Complaint[]> {
+    return this.http.get<Complaint[]>(this.adminUrl);
   }
 
-  updateStatus(id: number, status: string): Observable<Complaint> {
-    return this.http.put<Complaint>(`${this.baseUrl}/${id}/status`, { status });
+  getAllProgress(): Observable<ComplaintProgress[]> {
+    return this.http.get<ComplaintProgress[]>(this.progressUrl);
+  }
+
+  updateStatus(id: number, status: ComplaintStatus): Observable<Complaint> {
+    return this.http.put<Complaint>(`${this.adminUrl}/${id}/status`, { status });
   }
 }
