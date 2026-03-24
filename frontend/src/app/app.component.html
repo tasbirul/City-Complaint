@@ -1,0 +1,76 @@
+<div class="container">
+  <h1>City Complaint Tracker</h1>
+
+  <section class="card">
+    <h2>Submit a Complaint</h2>
+    <form (ngSubmit)="submitComplaint()">
+      <div class="grid">
+        <div>
+          <label for="title">Title</label>
+          <input id="title" name="title" [(ngModel)]="formModel.title" maxlength="120" required />
+        </div>
+
+        <div>
+          <label for="location">Location</label>
+          <input id="location" name="location" [(ngModel)]="formModel.location" maxlength="120" required />
+        </div>
+
+        <div>
+          <label for="category">Category</label>
+          <select id="category" name="category" [(ngModel)]="formModel.category">
+            <option *ngFor="let category of categories" [value]="category">{{ category }}</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-top: 0.75rem;">
+        <label for="description">Description</label>
+        <textarea
+          id="description"
+          name="description"
+          [(ngModel)]="formModel.description"
+          maxlength="1000"
+          required
+        ></textarea>
+      </div>
+
+      <div style="margin-top: 0.8rem;">
+        <button type="submit" [disabled]="saving">
+          {{ saving ? 'Submitting...' : 'Submit Complaint' }}
+        </button>
+      </div>
+    </form>
+
+    <p class="error" *ngIf="errorMessage">{{ errorMessage }}</p>
+  </section>
+
+  <section class="card">
+    <h2>Recent Complaints</h2>
+    <p *ngIf="loading">Loading complaints...</p>
+    <p *ngIf="loading === false && complaints.length === 0">No complaints yet.</p>
+
+    <div *ngFor="let complaint of complaints; trackBy: trackByComplaintId" class="card" style="margin-top: 0.8rem;">
+      <div class="complaint-meta">
+        <span class="status-chip">#{{ complaint.id }}</span>
+        <span class="status-chip">{{ complaint.category }}</span>
+        <span class="status-chip">{{ complaint.status }}</span>
+      </div>
+
+      <h3 style="margin: 0.25rem 0;">{{ complaint.title }}</h3>
+      <p style="margin: 0.35rem 0;"><strong>Location:</strong> {{ complaint.location }}</p>
+      <p style="margin: 0.35rem 0;">{{ complaint.description }}</p>
+      <p style="margin: 0.35rem 0; color: #52667a; font-size: 0.9rem;">
+        Submitted: {{ complaint.createdAtUtc | date:'medium' }}
+      </p>
+
+      <label [for]="'status-' + complaint.id">Update Status</label>
+      <select
+        [id]="'status-' + complaint.id"
+        [ngModel]="complaint.status"
+        (ngModelChange)="onStatusChange(complaint, $event)"
+      >
+        <option *ngFor="let status of statuses" [value]="status">{{ status }}</option>
+      </select>
+    </div>
+  </section>
+</div>
