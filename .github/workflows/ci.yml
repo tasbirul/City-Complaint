@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  # 1. Build, Test, and Push .NET Services in Parallel
+  dotnet-services:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [complaint-service, admin-service, progress-service]
+    
+    env:
+      DOTNET_VERSION: '8.0.x'
+      IMAGE_PREFIX: ${{ secrets.DOCKERHUB_USERNAME }}/city-complaint
+      SERVICE_PATH: backend/services/${{ matrix.service }}
+      # Maps matrix name to the specific .csproj filename
+      PROJECT_NAME: ${{ matrix.service == 'complaint-service' && 'ComplaintService' || matrix.service == 'admin-service' && 'AdminService' || 'ProgressService' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore Dependencies
+        run: dotnet restore ${{ env.SERVICE_PATH }}/${{ env.PROJECT_NAME }}.csproj
+
+      - name: Build Service
+        run: dotnet build ${{ env.SERVICE_PATH }}/${{ env.PROJECT_NAME }}.csproj --configuration Release --no-restore
+
+      - name: Run Unit Tests
+        run: |
+          # Finds any test projects within the specific service directory
+          TEST_PROJECT=$(find ${{ env.SERVICE_PATH }} -type f -name "*Tests.csproj")
+          if [ -n "$TEST_PROJECT" ]; then
+            dotnet test "$TEST_PROJECT" --configuration Release --no-build --verbosity normal
+          else
+            echo "No tests found for ${{ matrix.service }}"
+          fi
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.SERVICE_PATH }}
+          file: ${{ env.SERVICE_PATH }}//Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:latest
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 2. Build and Push Frontend (Parallel to Backend)
+  frontend:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_PREFIX: ${{ secrets.DOCKERHUB_USERNAME }}/city-complaint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Frontend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-frontend:latest
+            ${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
