@@ -1,0 +1,23 @@
+# .dockerignore for ASP.NET Core service
+
+# Ignore build output
+bin/
+obj/
+out/
+
+# Ignore IDE settings and user data
+.vs/
+.vscode/
+*.user
+*.userosscache
+*.sln.doccache
+
+# Ignore Docker-related files that shouldn't be in the build context
+Dockerfile
+.dockerignore
+
+# Ignore logs
+*.log
+
+# Project-specific ignores
+appsettings.Development.json

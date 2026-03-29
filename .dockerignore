@@ -1,0 +1,36 @@
+# Root-level .dockerignore
+
+# Ignore version control systems
+.git/
+.github/
+.gitignore
+
+# Ignore IDE files
+.vscode/
+.vs/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Ignore environment files (already in docker-compose, but good to ignore from context)
+.env
+.env.*
+
+# Ignore k8s configs if not needed in build context
+k8s/
+
+# Ignore documentation
+README.md
+docs/
+
+# Ignore service-specific ignore files
+**/Dockerfile
+**/.dockerignore
+
+# Ignore project-level binaries or nodes
+**/node_modules/
+**/bin/
+**/obj/
+**/dist/
+**/out/
