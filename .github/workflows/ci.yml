@@ -1,4 +1,4 @@
-name: 7-Stage CI Pipeline
+name: CI Pipeline
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
   dotnet-services:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false # Allows other services to finish even if one fails
+      fail-fast: false
       matrix:
         service: [complaint-service, admin-service, progress-service]
     
@@ -47,7 +47,7 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ${{ env.SERVICE_PATH }}/Dockerfile
-          failure-threshold: warning # Fails if poor Docker practices are found
+          failure-threshold: warning
 
       # STAGE 3: UNIT TESTING
       - name: Restore & Build Code
@@ -70,7 +70,7 @@ jobs:
         with:
           context: ${{ env.SERVICE_PATH }}
           file: ${{ env.SERVICE_PATH }}/Dockerfile
-          load: true # CRITICAL: Loads image locally for testing, does NOT push
+          load: true 
           tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -81,38 +81,50 @@ jobs:
         with:
           image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
           format: 'table'
-          exit-code: '1' # Fails the build if critical vulnerabilities are found
+          exit-code: '1'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
 
+
       # STAGE 6: INTEGRATION / CONTAINER TESTING
       - name: Smoke Test Container
         run: |
-          # Spin up the container in the background (Replace 8080 with your app's port)
-          docker run -d -p 8080:8080 --name test-${{ matrix.service }} ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          # 1. Create a temporary Docker network
+          docker network create test-net
           
-          # Wait for the app to start
+          # 2. Spin up a temporary PostgreSQL database
+          docker run -d --name test-db --network test-net \
+            -e POSTGRES_PASSWORD=mysecretpassword postgres:15
+          
+          # Give the DB a few seconds to initialize
+          sleep 5
+          
+          # 3. Spin up app container, attach to network, and inject connection string
+          docker run -d -p 8080:8080 --name test-${{ matrix.service }} --network test-net \
+            -e ConnectionStrings__DefaultConnection="Host=test-db;Port=5432;Database=testdb;Username=postgres;Password=mysecretpassword" \
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          
+          # 4. Wait for the app to start
           sleep 10
           
-          # Test if the container is returning a healthy response
-          # (Update the URL path to match your API's actual health check endpoint)
+          # 5. Test the health endpoint
           curl --fail http://localhost:8080/health || (docker logs test-${{ matrix.service }} && exit 1)
           
-          # Clean up
-          docker rm -f test-${{ matrix.service }}
+          # 6. Clean up
+          docker rm -f test-${{ matrix.service }} test-db
+          docker network rm test-net
+
 
       # STAGE 7: PUSH TO REGISTRY
       - name: Tag and Push Images
         run: |
-          # Create a 'dev' tag from the SHA image
           docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:dev
-          
-          # Push both tags to Docker Hub
           docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
           docker push ${{ env.IMAGE_NAME }}:dev
 
 
+  
   # FRONTEND JOB
   frontend:
     runs-on: ubuntu-latest
@@ -123,10 +135,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js (for frontend testing)
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20' # Update to your Node version
+          node-version: '20' 
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -147,8 +159,7 @@ jobs:
       - name: Install & Test Frontend
         working-directory: ./frontend
         run: |
-          npm ci
-          # Uncomment if you have linters/tests configured:
+          npm install 
           # npm run lint
           # npm run test
 
@@ -175,7 +186,6 @@ jobs:
       # Stage 6: Integration / Container Testing
       - name: Smoke Test Frontend
         run: |
-          # Assuming Nginx/Frontend runs on port 80 inside the container
           docker run -d -p 3000:80 --name test-frontend ${{ env.IMAGE_NAME }}:${{ github.sha }}
           sleep 5
           curl --fail http://localhost:3000 || (docker logs test-frontend && exit 1)
