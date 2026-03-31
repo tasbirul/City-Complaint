@@ -1,4 +1,4 @@
-name: CI
+name: 7-Stage CI Pipeline
 
 on:
   push:
@@ -9,21 +9,22 @@ permissions:
   contents: read
 
 jobs:
-  # 1. Build, Test, and Push .NET Services in Parallel
+  # BACKEND SERVICES JOB (Parallel Matrix)
   dotnet-services:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false # Allows other services to finish even if one fails
       matrix:
         service: [complaint-service, admin-service, progress-service]
     
     env:
       DOTNET_VERSION: '8.0.x'
-      IMAGE_PREFIX: ${{ secrets.DOCKERHUB_USERNAME }}/city-complaint
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/city-complaint-${{ matrix.service }}
       SERVICE_PATH: backend/services/${{ matrix.service }}
-      # Maps matrix name to the specific .csproj filename
       PROJECT_NAME: ${{ matrix.service == 'complaint-service' && 'ComplaintService' || matrix.service == 'admin-service' && 'AdminService' || 'ProgressService' }}
 
     steps:
+      # STAGE 1: CHECKOUT & SETUP
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -32,15 +33,30 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Restore Dependencies
-        run: dotnet restore ${{ env.SERVICE_PATH }}/${{ env.PROJECT_NAME }}.csproj
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build Service
-        run: dotnet build ${{ env.SERVICE_PATH }}/${{ env.PROJECT_NAME }}.csproj --configuration Release --no-restore
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # STAGE 2: LINTING & STATIC ANALYSIS
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ env.SERVICE_PATH }}/Dockerfile
+          failure-threshold: warning # Fails if poor Docker practices are found
+
+      # STAGE 3: UNIT TESTING
+      - name: Restore & Build Code
+        run: |
+          dotnet restore ${{ env.SERVICE_PATH }}/${{ env.PROJECT_NAME }}.csproj
+          dotnet build ${{ env.SERVICE_PATH }}/${{ env.PROJECT_NAME }}.csproj --configuration Release --no-restore
 
       - name: Run Unit Tests
         run: |
-          # Finds any test projects within the specific service directory
           TEST_PROJECT=$(find ${{ env.SERVICE_PATH }} -type f -name "*Tests.csproj")
           if [ -n "$TEST_PROJECT" ]; then
             dotnet test "$TEST_PROJECT" --configuration Release --no-build --verbosity normal
@@ -48,38 +64,70 @@ jobs:
             echo "No tests found for ${{ matrix.service }}"
           fi
 
-      # THE FIX: Adds the BuildKit engine necessary for GitHub cache export
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and Push Docker Image
+      # STAGE 4: BUILD THE DOCKER IMAGE
+      - name: Build Docker Image (Local Load)
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.SERVICE_PATH }}
-          file: ${{ env.SERVICE_PATH }}/Dockerfile # Fixed the double slash issue here
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:latest
-            ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ github.sha }}
+          file: ${{ env.SERVICE_PATH }}/Dockerfile
+          load: true # CRITICAL: Loads image locally for testing, does NOT push
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # 2. Build and Push Frontend (Parallel to Backend)
+      # STAGE 5: SECURITY SCANNING
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1' # Fails the build if critical vulnerabilities are found
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      # STAGE 6: INTEGRATION / CONTAINER TESTING
+      - name: Smoke Test Container
+        run: |
+          # Spin up the container in the background (Replace 8080 with your app's port)
+          docker run -d -p 8080:8080 --name test-${{ matrix.service }} ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          
+          # Wait for the app to start
+          sleep 10
+          
+          # Test if the container is returning a healthy response
+          # (Update the URL path to match your API's actual health check endpoint)
+          curl --fail http://localhost:8080/health || (docker logs test-${{ matrix.service }} && exit 1)
+          
+          # Clean up
+          docker rm -f test-${{ matrix.service }}
+
+      # STAGE 7: PUSH TO REGISTRY
+      - name: Tag and Push Images
+        run: |
+          # Create a 'dev' tag from the SHA image
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:dev
+          
+          # Push both tags to Docker Hub
+          docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.IMAGE_NAME }}:dev
+
+
+  # FRONTEND JOB
   frontend:
     runs-on: ubuntu-latest
     env:
-      IMAGE_PREFIX: ${{ secrets.DOCKERHUB_USERNAME }}/city-complaint
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/city-complaint-frontend
     steps:
+      # Stage 1: Checkout & Setup
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Adds the BuildKit engine necessary for GitHub cache export
+      - name: Set up Node.js (for frontend testing)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Update to your Node version
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -89,14 +137,53 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and Push Frontend Image
+      # Stage 2: Linting
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: frontend/Dockerfile
+
+      # Stage 3: Unit Testing (Frontend)
+      - name: Install & Test Frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          # Uncomment if you have linters/tests configured:
+          # npm run lint
+          # npm run test
+
+      # Stage 4: Build Docker Image (Local Load)
+      - name: Build Frontend Image
         uses: docker/build-push-action@v6
         with:
           context: frontend
           file: frontend/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-frontend:latest
-            ${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Stage 5: Security Scanning
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+      # Stage 6: Integration / Container Testing
+      - name: Smoke Test Frontend
+        run: |
+          # Assuming Nginx/Frontend runs on port 80 inside the container
+          docker run -d -p 3000:80 --name test-frontend ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          sleep 5
+          curl --fail http://localhost:3000 || (docker logs test-frontend && exit 1)
+          docker rm -f test-frontend
+
+      # Stage 7: Push to Registry
+      - name: Tag and Push Images
+        run: |
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:dev
+          docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.IMAGE_NAME }}:dev
