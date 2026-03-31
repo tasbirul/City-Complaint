@@ -10,6 +10,8 @@ RUN npm run build
 FROM nginx:1.27-alpine AS runtime
 WORKDIR /usr/share/nginx/html
 
+RUN apk update && apk upgrade --no-cache
+
 COPY --from=build /app/dist/city-complaint-frontend/ ./
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
