@@ -186,7 +186,13 @@ jobs:
       # Stage 6: Integration / Container Testing
       - name: Smoke Test Frontend
         run: |
-          docker run -d -p 3000:80 --name test-frontend ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          # Use --add-host to trick Nginx into thinking the backends exist
+          docker run -d -p 3000:80 --name test-frontend \
+            --add-host complaint-service:127.0.0.1 \
+            --add-host admin-service:127.0.0.1 \
+            --add-host progress-service:127.0.0.1 \
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            
           sleep 5
           curl --fail http://localhost:3000 || (docker logs test-frontend && exit 1)
           docker rm -f test-frontend
