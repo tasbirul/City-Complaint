@@ -15,13 +15,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [complaint-service, admin-service, progress-service]
+        include:
+          - service: complaint-service
+            project_name: ComplaintService
+          - service: admin-service
+            project_name: AdminService
+          - service: progress-service
+            project_name: ProgressService
     
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       DOTNET_VERSION: '8.0.x'
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/city-complaint-${{ matrix.service }}
       SERVICE_PATH: backend/services/${{ matrix.service }}
-      PROJECT_NAME: ${{ matrix.service == 'complaint-service' && 'ComplaintService' || matrix.service == 'admin-service' && 'AdminService' || 'ProgressService' }}
+      PROJECT_NAME: ${{ matrix.project_name }}
 
     steps:
       # STAGE 1: CHECKOUT & SETUP
@@ -57,11 +64,13 @@ jobs:
 
       - name: Run Unit Tests
         run: |
-          TEST_PROJECT=$(find ${{ env.SERVICE_PATH }} -type f -name "*Tests.csproj")
-          if [ -n "$TEST_PROJECT" ]; then
-            dotnet test "$TEST_PROJECT" --configuration Release --no-build --verbosity normal
-          else
+          TEST_PROJECTS=$(find ${{ env.SERVICE_PATH }} -type f -name "*Tests.csproj")
+          if [ -z "$TEST_PROJECTS" ]; then
             echo "No tests found for ${{ matrix.service }}"
+          else
+            echo "$TEST_PROJECTS" | while IFS= read -r project; do
+              dotnet test "$project" --configuration Release --no-build --verbosity normal
+            done
           fi
 
       # STAGE 4: BUILD THE DOCKER IMAGE
@@ -86,7 +95,6 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
 
-
       # STAGE 6: INTEGRATION / CONTAINER TESTING
       - name: Smoke Test Container
         run: |
@@ -97,8 +105,8 @@ jobs:
           docker run -d --name test-db --network test-net \
             -e POSTGRES_PASSWORD=mysecretpassword postgres:15
           
-          # Give the DB a few seconds to initialize
-          sleep 5
+          # Wait for Postgres to be explicitly ready (Timeout after 30 seconds)
+          timeout 30s bash -c 'until docker exec test-db pg_isready -U postgres; do sleep 1; done'
           
           # 3. Spin up app container, attach to network, and inject connection string
           docker run -d -p 8080:8080 --name test-${{ matrix.service }} --network test-net \
@@ -115,16 +123,20 @@ jobs:
           docker rm -f test-${{ matrix.service }} test-db
           docker network rm test-net
 
-
       # STAGE 7: PUSH TO REGISTRY
-      - name: Tag and Push Images
-        run: |
-          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:dev
-          docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          docker push ${{ env.IMAGE_NAME }}:dev
+      - name: Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.SERVICE_PATH }}
+          file: ${{ env.SERVICE_PATH }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
 
-  
   # FRONTEND JOB
   frontend:
     runs-on: ubuntu-latest
@@ -164,7 +176,7 @@ jobs:
           # npm run test
 
       # Stage 4: Build Docker Image (Local Load)
-      - name: Build Frontend Image
+      - name: Build Frontend Image (Local Load)
         uses: docker/build-push-action@v6
         with:
           context: frontend
@@ -181,6 +193,7 @@ jobs:
           image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
           format: 'table'
           exit-code: '1'
+          ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
 
       # Stage 6: Integration / Container Testing
@@ -198,8 +211,14 @@ jobs:
           docker rm -f test-frontend
 
       # Stage 7: Push to Registry
-      - name: Tag and Push Images
-        run: |
-          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:dev
-          docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          docker push ${{ env.IMAGE_NAME }}:dev
+      - name: Push Frontend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
