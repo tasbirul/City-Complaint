@@ -46,6 +46,8 @@ jobs:
 
       - uses: aws-actions/amazon-ecr-login@v2
 
+      - uses: docker/setup-buildx-action@v3
+
       - uses: docker/build-push-action@v6
         with:
           context: backend/services/${{ matrix.service }}
@@ -71,6 +73,8 @@ jobs:
           aws-region:            ${{ secrets.AWS_REGION }}
 
       - uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
 
       - uses: docker/build-push-action@v6
         with:
