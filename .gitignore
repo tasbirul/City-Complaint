@@ -56,3 +56,5 @@ kubeconfig*
 # ── SSH Keys ─────────────────────────────────────────────────
 *.pem
 *.key
+
+kubeconfig-cluster
