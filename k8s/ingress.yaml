@@ -1,0 +1,40 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: city-complaint-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: city-complaint.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 4200
+      - path: /api/complaints
+        pathType: Prefix
+        backend:
+          service:
+            name: complaint-service
+            port:
+              number: 8080
+      - path: /api/admin
+        pathType: Prefix
+        backend:
+          service:
+            name: admin-service
+            port:
+              number: 8080
+      - path: /api/progress
+        pathType: Prefix
+        backend:
+          service:
+            name: progress-service
+            port:
+              number: 8080

@@ -1,0 +1,5 @@
+---
+# Variables for the worker node group (tag_Role_worker).
+# Workers are in the public subnet with public IPs — no jump host needed.
+
+node_role: worker

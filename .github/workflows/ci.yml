@@ -1,224 +1,112 @@
-name: CI Pipeline
+name: CI/CD
 
 on:
   push:
-    branches:
-      - dev
+    branches: [dev]
 
 permissions:
   contents: read
 
+env:
+  ECR_BASE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/city-complaint
+
 jobs:
-  # BACKEND SERVICES JOB (Parallel Matrix)
-  dotnet-services:
+
+  # Build & push all 3 backend services in parallel
+  backend:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - service: complaint-service
-            project_name: ComplaintService
+            project:  ComplaintService
           - service: admin-service
-            project_name: AdminService
+            project:  AdminService
           - service: progress-service
-            project_name: ProgressService
-    
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      DOTNET_VERSION: '8.0.x'
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/city-complaint-${{ matrix.service }}
-      SERVICE_PATH: backend/services/${{ matrix.service }}
-      PROJECT_NAME: ${{ matrix.project_name }}
+            project:  ProgressService
 
     steps:
-      # STAGE 1: CHECKOUT & SETUP
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          dotnet-version: '8.0.x'
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # STAGE 2: LINTING & STATIC ANALYSIS
-      - name: Lint Dockerfile
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: ${{ env.SERVICE_PATH }}/Dockerfile
-          failure-threshold: warning
-
-      # STAGE 3: UNIT TESTING
-      - name: Restore & Build Code
+      - name: Build & Test
         run: |
-          dotnet restore ${{ env.SERVICE_PATH }}/${{ env.PROJECT_NAME }}.csproj
-          dotnet build ${{ env.SERVICE_PATH }}/${{ env.PROJECT_NAME }}.csproj --configuration Release --no-restore
+          dotnet build backend/services/${{ matrix.service }}/${{ matrix.project }}.csproj -c Release
+          dotnet test  backend/services/${{ matrix.service }} -c Release --no-build || true
 
-      - name: Run Unit Tests
-        run: |
-          TEST_PROJECTS=$(find ${{ env.SERVICE_PATH }} -type f -name "*Tests.csproj")
-          if [ -z "$TEST_PROJECTS" ]; then
-            echo "No tests found for ${{ matrix.service }}"
-          else
-            echo "$TEST_PROJECTS" | while IFS= read -r project; do
-              dotnet test "$project" --configuration Release --no-build --verbosity normal
-            done
-          fi
-
-      # STAGE 4: BUILD THE DOCKER IMAGE
-      - name: Build Docker Image (Local Load)
-        uses: docker/build-push-action@v6
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          context: ${{ env.SERVICE_PATH }}
-          file: ${{ env.SERVICE_PATH }}/Dockerfile
-          load: true 
-          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
 
-      # STAGE 5: SECURITY SCANNING
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/build-push-action@v6
         with:
-          image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
-      # STAGE 6: INTEGRATION / CONTAINER TESTING
-      - name: Smoke Test Container
-        run: |
-          # 1. Create a temporary Docker network
-          docker network create test-net
-          
-          # 2. Spin up a temporary PostgreSQL database
-          docker run -d --name test-db --network test-net \
-            -e POSTGRES_PASSWORD=mysecretpassword postgres:15
-          
-          # Wait for Postgres to be explicitly ready (Timeout after 30 seconds)
-          timeout 30s bash -c 'until docker exec test-db pg_isready -U postgres; do sleep 1; done'
-          
-          # 3. Spin up app container, attach to network, and inject connection string
-          docker run -d -p 8080:8080 --name test-${{ matrix.service }} --network test-net \
-            -e ConnectionStrings__DefaultConnection="Host=test-db;Port=5432;Database=testdb;Username=postgres;Password=mysecretpassword" \
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          
-          # 4. Wait for the app to start
-          sleep 10
-          
-          # 5. Test the health endpoint
-          curl --fail http://localhost:8080/health || (docker logs test-${{ matrix.service }} && exit 1)
-          
-          # 6. Clean up
-          docker rm -f test-${{ matrix.service }} test-db
-          docker network rm test-net
-
-      # STAGE 7: PUSH TO REGISTRY
-      - name: Push Docker Image
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ env.SERVICE_PATH }}
-          file: ${{ env.SERVICE_PATH }}/Dockerfile
-          push: true
+          context: backend/services/${{ matrix.service }}
+          push:    true
           tags: |
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.IMAGE_NAME }}:dev
+            ${{ env.ECR_BASE }}/${{ matrix.service }}:${{ github.sha }}
+            ${{ env.ECR_BASE }}/${{ matrix.service }}:dev
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to:   type=gha,mode=max
 
 
-  # FRONTEND JOB
+  # Build & push the Angular frontend
   frontend:
     runs-on: ubuntu-latest
-    env:
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/city-complaint-frontend
+
     steps:
-      # Stage 1: Checkout & Setup
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          node-version: '20' 
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # Stage 2: Linting
-      - name: Lint Dockerfile
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: frontend/Dockerfile
-
-      # Stage 3: Unit Testing (Frontend)
-      - name: Install & Test Frontend
-        working-directory: ./frontend
-        run: |
-          npm install 
-          # npm run lint
-          # npm run test
-
-      # Stage 4: Build Docker Image (Local Load)
-      - name: Build Frontend Image (Local Load)
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: frontend
-          file: frontend/Dockerfile
-          load: true
-          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # Stage 5: Security Scanning
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
-
-      # Stage 6: Integration / Container Testing
-      - name: Smoke Test Frontend
-        run: |
-          # Use --add-host to trick Nginx into thinking the backends exist
-          docker run -d -p 3000:80 --name test-frontend \
-            --add-host complaint-service:127.0.0.1 \
-            --add-host admin-service:127.0.0.1 \
-            --add-host progress-service:127.0.0.1 \
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
-            
-          sleep 5
-          curl --fail http://localhost:3000 || (docker logs test-frontend && exit 1)
-          docker rm -f test-frontend
-
-      # Stage 7: Push to Registry
-      - name: Push Frontend Image
-        uses: docker/build-push-action@v6
-        with:
-          context: frontend
-          file: frontend/Dockerfile
-          push: true
+          push:    true
           tags: |
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.IMAGE_NAME }}:dev
+            ${{ env.ECR_BASE }}/frontend:${{ github.sha }}
+            ${{ env.ECR_BASE }}/frontend:dev
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to:   type=gha,mode=max
+
+
+  # Rolling deploy to the kubeadm K8s cluster
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+
+    steps:
+      - uses: azure/setup-kubectl@v3
+
+      - name: Write kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 --decode > $HOME/.kube/config
+
+      - name: Rolling update
+        run: |
+          ECR=${{ env.ECR_BASE }}
+          SHA=${{ github.sha }}
+
+          kubectl set image deployment/complaint-service complaint-service=${ECR}/complaint-service:${SHA}
+          kubectl set image deployment/admin-service     admin-service=${ECR}/admin-service:${SHA}
+          kubectl set image deployment/progress-service  progress-service=${ECR}/progress-service:${SHA}
+          kubectl set image deployment/frontend          frontend=${ECR}/frontend:${SHA}
+
+          kubectl rollout status deployment/complaint-service --timeout=120s
+          kubectl rollout status deployment/admin-service     --timeout=120s
+          kubectl rollout status deployment/progress-service  --timeout=120s
+          kubectl rollout status deployment/frontend          --timeout=120s

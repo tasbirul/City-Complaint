@@ -1,0 +1,36 @@
+---
+# AWS EC2 Dynamic Inventory Plugin
+# Docs: https://docs.ansible.com/ansible/latest/collections/amazon/aws/aws_ec2_inventory.html
+#
+# Prerequisites:
+#   pip install boto3 botocore
+#   AWS credentials via env vars or AWS CLI profile
+#
+# Usage:
+#   ansible-inventory -i inventory/aws_ec2.yml --list
+#   ansible-inventory -i inventory/aws_ec2.yml --graph
+
+plugin: amazon.aws.aws_ec2
+
+regions:
+  - us-east-1
+
+filters:
+  tag:Project: kubeadm
+  instance-state-name: running
+
+# Auto-create groups from the 'Role' EC2 tag:
+#   tag_Role_master — master node(s)
+#   tag_Role_worker — worker nodes
+keyed_groups:
+  - key: tags.Role
+    prefix: tag_Role
+    separator: "_"
+
+hostnames:
+  - instance-id
+  - public-ip-address
+
+# All nodes are in the public subnet and have a public IP — connect directly
+compose:
+  ansible_host: public_ip_address

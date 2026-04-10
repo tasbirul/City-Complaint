@@ -9,6 +9,7 @@ type: Opaque
 stringData:
   POSTGRES_USER: postgres
   POSTGRES_PASSWORD: postgres
+  ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=citycomplaintsdb;Username=postgres;Password=postgres"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -17,7 +18,6 @@ metadata:
 data:
   POSTGRES_DB: citycomplaintsdb
   ASPNETCORE_ENVIRONMENT: Production
-  ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=citycomplaintsdb;Username=postgres;Password=postgres"
 
 ---
 # ==========================================
@@ -125,13 +125,29 @@ spec:
     spec:
       containers:
         - name: complaint-service
-          image: city-complaint/complaint-service:local
-          imagePullPolicy: Never # Forces kind to use your locally loaded image
+          # ECR image — updated at deploy time by: kubectl set image ...
+          # Format: <account>.dkr.ecr.<region>.amazonaws.com/city-complaint/complaint-service:<sha>
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/city-complaint/complaint-service:dev
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: app-config
+            - secretRef:
+                name: db-credentials
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -164,13 +180,29 @@ spec:
     spec:
       containers:
         - name: admin-service
-          image: city-complaint/admin-service:local
-          imagePullPolicy: Never # Forces kind to use your locally loaded image
+          # ECR image — updated at deploy time by: kubectl set image ...
+          # Format: <account>.dkr.ecr.<region>.amazonaws.com/city-complaint/admin-service:<sha>
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/city-complaint/admin-service:dev
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: app-config
+            - secretRef:
+                name: db-credentials
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -203,13 +235,29 @@ spec:
     spec:
       containers:
         - name: progress-service
-          image: city-complaint/progress-service:local
-          imagePullPolicy: Never # Forces kind to use your locally loaded image
+          # ECR image — updated at deploy time by: kubectl set image ...
+          # Format: <account>.dkr.ecr.<region>.amazonaws.com/city-complaint/progress-service:<sha>
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/city-complaint/progress-service:dev
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: app-config
+            - secretRef:
+                name: db-credentials
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -244,8 +292,10 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: city-complaint/frontend:local
-          imagePullPolicy: Never # Forces kind to use your locally loaded image
+          # ECR image — updated at deploy time by: kubectl set image ...
+          # Format: <account>.dkr.ecr.<region>.amazonaws.com/city-complaint/frontend:<sha>
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/city-complaint/frontend:dev
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
 ---

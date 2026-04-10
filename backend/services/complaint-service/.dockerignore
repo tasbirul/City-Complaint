@@ -1,23 +1,29 @@
-# .dockerignore for ASP.NET Core service
+# ============================================================
+# .dockerignore — ASP.NET Core backend service
+# Build context: backend/services/<service-name>/
+# Dockerfile does: COPY *.csproj → restore → COPY . . → publish
+# ============================================================
 
-# Ignore build output
+# .NET build output — never copy these; the build stage produces fresh output
 bin/
 obj/
 out/
 
-# Ignore IDE settings and user data
+# Test results
+TestResults/
+
+# Dev-only settings (production uses env vars / K8s secrets)
+appsettings.Development.json
+
+# IDE
 .vs/
 .vscode/
 *.user
-*.userosscache
-*.sln.doccache
+*.suo
 
-# Ignore Docker-related files that shouldn't be in the build context
+# Docker files (already processed by the daemon — no need inside context)
 Dockerfile
 .dockerignore
 
-# Ignore logs
+# Logs
 *.log
-
-# Project-specific ignores
-appsettings.Development.json

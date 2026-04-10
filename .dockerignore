@@ -1,36 +1,44 @@
-# Root-level .dockerignore
+# ============================================================
+# .dockerignore — Root (used by docker-compose)
+# Excludes everything that no service build context needs.
+# ============================================================
 
-# Ignore version control systems
+# Version control
 .git/
 .github/
 .gitignore
 
-# Ignore IDE files
+# Infrastructure-as-code (not needed inside any container)
+terraform/
+ansible/
+k8s/
+
+# IDE & OS
 .vscode/
 .vs/
 .idea/
-*.swp
-*.swo
 .DS_Store
+*.swp
 
-# Ignore environment files (already in docker-compose, but good to ignore from context)
+# Secrets
 .env
 .env.*
 
-# Ignore k8s configs if not needed in build context
-k8s/
-
-# Ignore documentation
+# Docs
 README.md
 docs/
 
-# Ignore service-specific ignore files
-**/Dockerfile
-**/.dockerignore
-
-# Ignore project-level binaries or nodes
-**/node_modules/
+# .NET build output
 **/bin/
 **/obj/
-**/dist/
 **/out/
+**/TestResults/
+
+# Node
+**/node_modules/
+**/dist/
+**/out-tsc/
+**/.angular/
+
+# Logs
+**/*.log
